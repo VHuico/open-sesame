@@ -14,27 +14,33 @@ export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [encryptionKey, setEncryptionKey] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [needsMasterPassword, setNeedsMasterPassword] = useState(false);
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
             setUser(currentUser);
             if (!currentUser) {
                 setEncryptionKey(null);
+                setNeedsMasterPassword(false);
+            } else if (!encryptionKey) {
+                // User is authenticated but we don't have the encryption key
+                // This happens on page reload or new device login
+                setNeedsMasterPassword(true);
             }
             setLoading(false);
         });
         return unsubscribe;
-    }, []);
+    }, [encryptionKey]);
 
     const signup = async (email, password, masterPassword) => {
         // 1. Create Firebase User
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
 
         // 2. Derive Encryption Key from Master Password using email as salt
-        // This ensures the same key is derived on any device when logging in
         const { key } = await crypto.deriveKey(masterPassword, email);
 
         setEncryptionKey(key);
+        setNeedsMasterPassword(false);
         return userCredential.user;
     };
 
@@ -42,22 +48,25 @@ export const AuthProvider = ({ children }) => {
         // 1. Login with Firebase
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
 
-        // 2. Derive Key (We need the salt! For now assuming fixed salt or we fetch it)
-        // TODO: In a real app, we fetch the unique salt for this user from Firestore.
-        // To keep it simple for this migration, we will use a deterministic salt based on email (less secure but functional for now)
-        // or we just re-use the deriveKey logic which generates a new salt, but that won't match previous encryption.
-
-        // FIX: We need to store the salt. Let's assume we use the email as salt for now to ensure consistency across devices without extra DB calls yet.
-        // Ideally, we save the salt in a 'users' collection.
-
-        const { key } = await crypto.deriveKey(masterPassword, email); // Using email as salt for simplicity in this step
+        // 2. Derive Key using email as salt for consistency across devices
+        const { key } = await crypto.deriveKey(masterPassword, email);
         setEncryptionKey(key);
+        setNeedsMasterPassword(false);
         return userCredential.user;
+    };
+
+    const unlockVault = async (masterPassword) => {
+        if (!user) throw new Error("Not authenticated");
+
+        const { key } = await crypto.deriveKey(masterPassword, user.email);
+        setEncryptionKey(key);
+        setNeedsMasterPassword(false);
     };
 
     const logout = async () => {
         await signOut(auth);
         setEncryptionKey(null);
+        setNeedsMasterPassword(false);
     };
 
     return (
@@ -67,6 +76,8 @@ export const AuthProvider = ({ children }) => {
             signup,
             login,
             logout,
+            unlockVault,
+            needsMasterPassword,
             loading
         }}>
             {!loading && children}

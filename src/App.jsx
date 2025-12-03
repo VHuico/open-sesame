@@ -4,14 +4,19 @@ import { ThemeProvider } from './context/ThemeContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import AddPassword from './pages/AddPassword';
+import UnlockVault from './pages/UnlockVault';
 
 const ProtectedRoute = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { user, needsMasterPassword, loading } = useAuth();
 
   if (loading) return <div>Loading...</div>;
 
   if (!user) {
     return <Navigate to="/login" />;
+  }
+
+  if (needsMasterPassword) {
+    return <UnlockVault />;
   }
 
   return children;
